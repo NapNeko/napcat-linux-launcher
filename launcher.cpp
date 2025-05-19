@@ -19,7 +19,7 @@ const char *NAPCAT_JS_CONTENT =
     "const path = require('path');"
     "const CurrentPath = process.env.NAPCAT_BOOTMAIN || path.dirname(__filename);"
     "(async () => {"
-    "    await import('file://' + path.join(CurrentPath, './napcat/napcat.mjs'));"
+    "    await import('file://' + path.join(CurrentPath, './napcat.mjs'));"
     "})();";
 
 const char *ORIGINAL_MAIN = "\"main\": \"./application.asar/app_launcher/index.js\"";
