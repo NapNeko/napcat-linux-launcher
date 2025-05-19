@@ -1,0 +1,80 @@
+name: Build NapCat Linux Launcher
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Launcher on ${{ matrix.os }} for ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            gcc_arch: ""
+            output_name: "libnapcat_launcher.so"
+          - arch: arm64
+            gcc_arch: "aarch64-linux-gnu-"
+            output_name: "libnapcat_launcher_arm64.so"
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+        if [ "${{ matrix.arch }}" = "arm64" ]; then
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+        fi
+
+    - name: Build launcher
+      run: |
+        if [ "${{ matrix.arch }}" = "x64" ]; then
+          g++ -shared -fPIC -ldl -o ${{ matrix.output_name }} launcher.cpp
+        else
+          ${{ matrix.gcc_arch }}g++ -shared -fPIC -ldl -o ${{ matrix.output_name }} launcher.cpp
+        fi
+
+    - name: Test file exists
+      run: ls -la ${{ matrix.output_name }}
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: napcat-launcher-${{ matrix.arch }}
+        path: ${{ matrix.output_name }}
+        retention-days: 7
+        
+  release:
+    name: Create Release
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        
+      - name: List artifacts
+        run: find . -type f
+        
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: release-${{ github.run_number }}
+          name: NapCat Launcher Build ${{ github.run_number }}
+          draft: false
+          prerelease: false
+          files: |
+            napcat-launcher-x64/libnapcat_launcher.so
+            napcat-launcher-arm64/libnapcat_launcher_arm64.so
+          token: ${{ secrets.GITHUB_TOKEN }}
