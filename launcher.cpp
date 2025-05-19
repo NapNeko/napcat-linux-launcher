@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <string.h>
@@ -54,7 +53,16 @@ static char *get_modified_packagejson()
         return g_modified_package_json;
     }
 
-    FILE *fp = fopen(TARGET_PACKAGE_JSON, "r");
+    // 使用真实的fopen防止递归
+    static FILE *(*real_fopen)(const char *, const char *) = nullptr;
+    if (!real_fopen)
+    {
+        real_fopen = (FILE *(*)(const char *, const char *))dlsym(RTLD_NEXT, "fopen");
+        if (!real_fopen)
+            return nullptr;
+    }
+
+    FILE *fp = real_fopen(TARGET_PACKAGE_JSON, "r");
     if (!fp)
     {
         return nullptr;
@@ -104,7 +112,6 @@ static char *get_modified_packagejson()
 
     return g_modified_package_json;
 }
-
 /**
  * 创建内存文件并写入内容
  */
@@ -159,12 +166,11 @@ static int handle_target_file(const char *pathname)
 
     return -1;
 }
-
-/**
- * Hook系统open函数
- */
 extern "C" int open(const char *pathname, int flags, ...)
 {
+    printf("[launcher] open: %s\n", pathname); // 打印加载文件路径
+    fflush(stdout);
+
     static int (*real_open)(const char *, int, ...) = nullptr;
     if (!real_open)
     {
@@ -201,6 +207,9 @@ extern "C" int open(const char *pathname, int flags, ...)
  */
 extern "C" int openat(int dirfd, const char *pathname, int flags, ...)
 {
+    printf("[launcher] openat: %s\n", pathname); // 打印加载文件路径
+    fflush(stdout);
+
     static int (*real_openat)(int, const char *, int, ...) = nullptr;
     if (!real_openat)
     {
@@ -237,6 +246,9 @@ extern "C" int openat(int dirfd, const char *pathname, int flags, ...)
  */
 extern "C" FILE *fopen(const char *pathname, const char *mode)
 {
+    printf("[launcher] fopen: %s\n", pathname); // 打印加载文件路径
+    fflush(stdout);
+
     static FILE *(*real_fopen)(const char *, const char *) = nullptr;
     if (!real_fopen)
     {
@@ -258,25 +270,88 @@ extern "C" FILE *fopen(const char *pathname, const char *mode)
 
     return real_fopen(pathname, mode);
 }
-
-__attribute__((constructor)) static void launcher_init()
+extern "C" int open64(const char *pathname, int flags, ...)
 {
-    char cwd[1024];
-    if (getcwd(cwd, sizeof(cwd)))
+    printf("[launcher] open64: %s\n", pathname);
+    fflush(stdout);
+
+    static int (*real_open64)(const char *, int, ...) = nullptr;
+    if (!real_open64)
     {
-        printf("NapCat启动器初始化，当前工作目录: %s\n", cwd);
+        real_open64 = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open64");
+        if (!real_open64)
+            return -1;
+    }
+
+    int target_fd = handle_target_file(pathname);
+    if (target_fd >= 0)
+    {
+        return target_fd;
+    }
+
+    va_list args;
+    va_start(args, flags);
+    int result;
+    if (flags & O_CREAT)
+    {
+        int mode = va_arg(args, int);
+        result = real_open64(pathname, flags, mode);
     }
     else
     {
-        printf("NapCat启动器初始化\n");
+        result = real_open64(pathname, flags);
     }
+    va_end(args);
+
+    return result;
 }
 
-__attribute__((destructor)) static void launcher_cleanup()
+/**
+ * Hook系统fopen64函数
+ */
+extern "C" FILE *fopen64(const char *pathname, const char *mode)
 {
-    if (g_modified_package_json)
+    static __thread int in_hook = 0;
+    if (in_hook)
     {
-        free(g_modified_package_json);
-        g_modified_package_json = nullptr;
+        // 避免递归
+        static FILE *(*real_fopen64)(const char *, const char *) = nullptr;
+        if (!real_fopen64)
+        {
+            real_fopen64 = (FILE * (*)(const char *, const char *)) dlsym(RTLD_NEXT, "fopen64");
+            if (!real_fopen64)
+                return nullptr;
+        }
+        return real_fopen64(pathname, mode);
     }
+
+    in_hook = 1;
+    printf("[launcher] fopen64: %s\n", pathname);
+    fflush(stdout);
+
+    int target_fd = handle_target_file(pathname);
+    if (target_fd >= 0)
+    {
+        FILE *fp = fdopen(target_fd, mode);
+        if (!fp)
+        {
+            close(target_fd);
+        }
+        in_hook = 0;
+        return fp;
+    }
+
+    static FILE *(*real_fopen64)(const char *, const char *) = nullptr;
+    if (!real_fopen64)
+    {
+        real_fopen64 = (FILE * (*)(const char *, const char *)) dlsym(RTLD_NEXT, "fopen64");
+        if (!real_fopen64)
+        {
+            in_hook = 0;
+            return nullptr;
+        }
+    }
+    FILE *fp = real_fopen64(pathname, mode);
+    in_hook = 0;
+    return fp;
 }
