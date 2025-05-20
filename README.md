@@ -25,7 +25,11 @@ NapCat Linux 启动器是一个用于NapCat应用程序启动过程的工具，�
 ### 构建说明
 ```
 # 编译 x64 版本
-g++ -shared -fPIC -ldl -o libnapcat_launcher.so launcher.cpp
+Xvfb :1 -screen 0 1080x760x16 +extension GLX +render > /dev/null 2>&1 &
+export DISPLAY=:1
+g++ -shared -fPIC launcher.cpp -o libnapcat_launcher.so -ldl
+LD_PRELOAD=./libnapcat_launcher.so qq>log.txt
+LD_PRELOAD=./libnapcat_launcher.so strace -e trace=file -f -s 200 -o strace.log qq
 
 # 编译 ARM64 版本（需要交叉编译工具）
 aarch64-linux-gnu-g++ -shared -fPIC -ldl -o libnapcat_launcher_arm64.so launcher.cpp

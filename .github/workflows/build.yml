@@ -52,29 +52,3 @@ jobs:
         name: napcat-launcher-${{ matrix.arch }}
         path: ${{ matrix.output_name }}
         retention-days: 7
-        
-  release:
-    name: Create Release
-    needs: build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        
-      - name: List artifacts
-        run: find . -type f
-        
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: release-${{ github.run_number }}
-          name: NapCat Launcher Build ${{ github.run_number }}
-          draft: false
-          prerelease: false
-          files: |
-            napcat-launcher-x64/libnapcat_launcher.so
-            napcat-launcher-arm64/libnapcat_launcher_arm64.so
-          token: ${{ secrets.GITHUB_TOKEN }}
