@@ -18,7 +18,7 @@ jobs:
         include:
           - arch: x64
             gcc_arch: ""
-            output_name: "libnapcat_launcher.so"
+            output_name: "libnapcat_launcher_amd64.so"
           - arch: arm64
             gcc_arch: "aarch64-linux-gnu-"
             output_name: "libnapcat_launcher_arm64.so"
