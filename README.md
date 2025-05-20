@@ -14,7 +14,6 @@ NapCat Linux 启动器是一个用于NapCat应用程序启动过程的工具，�
 ### 预备条件
 
 - Linux 操作系统
-- 目标应用为基于 Electron 的应用程序
 - `LD_PRELOAD` 环境变量支持（大多数 Linux 发行版默认支持）
 
 ### 安装步骤
@@ -25,11 +24,7 @@ NapCat Linux 启动器是一个用于NapCat应用程序启动过程的工具，�
 ### 构建说明
 ```
 # 编译 x64 版本
-Xvfb :1 -screen 0 1080x760x16 +extension GLX +render > /dev/null 2>&1 &
-export DISPLAY=:1
 g++ -shared -fPIC launcher.cpp -o libnapcat_launcher.so -ldl
-LD_PRELOAD=./libnapcat_launcher.so qq>log.txt
-LD_PRELOAD=./libnapcat_launcher.so strace -e trace=file -f -s 200 -o strace.log qq
 
 # 编译 ARM64 版本（需要交叉编译工具）
 aarch64-linux-gnu-g++ -shared -fPIC -ldl -o libnapcat_launcher_arm64.so launcher.cpp
@@ -37,9 +32,9 @@ aarch64-linux-gnu-g++ -shared -fPIC -ldl -o libnapcat_launcher_arm64.so launcher
 ### 使用步骤
 
 ```bash
-LD_PRELOAD=./libnapcat_launcher.so ./your-electron-app
-```
-
-```bash
-NAPCAT_BOOTMAIN=/path/napcat LD_PRELOAD=./libnapcat_launcher.so ./your-electron-app
+Xvfb :1 -screen 0 1x1x8 +extension GLX +render > /dev/null 2>&1 &
+export DISPLAY=:1
+LD_PRELOAD=./libnapcat_launcher.so qq
+LD_PRELOAD=./libnapcat_launcher.so qq>log.txt
+LD_PRELOAD=./libnapcat_launcher.so strace -e trace=file -f -s 200 -o strace.log qq
 ```

@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <linux/stat.h>
 #include <limits.h>
+#include <libgen.h>
 
 const char *TARGET_PACKAGE_JSON = "resources/app/package.json";
 const char *TARGET_PACKAGE_JSON_ALT = "/opt/QQ/resources/app/package.json";
@@ -27,10 +28,14 @@ const char *NAPCAT_JS_CONTENT =
 
 // package.json 替换内容
 const char *ORIGINAL_MAIN = "\"main\": \"./application.asar/app_launcher/index.js\"";
-const char *NEW_MAIN = "\"main\": \"loadNapCat.js\"";
+// NEW_MAIN 由 get_modified_packagejson 动态生成
+static char g_new_main[PATH_MAX + 128] = {0};
 
 // 缓存修改后的 package.json
 static char *g_modified_package_json = nullptr;
+
+// 标记 loadNapCat.js 是否已生成
+static bool g_loadnapcat_generated = false;
 
 /**
  * 检查文件路径是否与目标路径匹配（支持绝对路径和相对路径）
@@ -48,6 +53,43 @@ static bool path_matches(const char *path, const char *target)
 
     // 完全相等或以 target 结尾
     return strcmp(path, target) == 0 || strcmp(path + path_len - target_len, target) == 0;
+}
+
+/**
+ * 计算 from_dir 到 to_dir 的相对路径
+ */
+static int get_relative_path(const char *from_dir, const char *to_dir, char *out, size_t out_size)
+{
+    char from[PATH_MAX], to[PATH_MAX];
+    if (!realpath(from_dir, from) || !realpath(to_dir, to))
+        return -1;
+
+    // 找公共前缀
+    size_t i = 0;
+    while (from[i] && to[i] && from[i] == to[i]) i++;
+
+    // 回退到最后一个'/'
+    size_t last_slash = i;
+    while (last_slash > 0 && from[last_slash - 1] != '/') last_slash--;
+
+    // 计算需要多少个 ../
+    size_t up = 0;
+    for (size_t j = last_slash; from[j]; j++)
+        if (from[j] == '/') up++;
+
+    char rel[PATH_MAX] = {0};
+    for (size_t j = 0; j < up; j++)
+        strcat(rel, "../");
+
+    strcat(rel, to + last_slash);
+
+    // 去掉开头的 '/'
+    if (rel[0] == '/')
+        memmove(rel, rel + 1, strlen(rel));
+
+    strncpy(out, rel, out_size - 1);
+    out[out_size - 1] = 0;
+    return 0;
 }
 
 /**
@@ -93,9 +135,32 @@ static char *get_modified_packagejson()
         return buffer;
     }
 
+    // 计算 package.json 所在目录和当前工作目录的相对路径
+    char pkg_dir[PATH_MAX], cwd[PATH_MAX], relpath[PATH_MAX];
+    strncpy(pkg_dir, TARGET_PACKAGE_JSON_ALT, PATH_MAX - 1);
+    pkg_dir[PATH_MAX - 1] = 0;
+    dirname(pkg_dir); // pkg_dir 变成 package.json 所在目录
+
+    if (!getcwd(cwd, sizeof(cwd)))
+    {
+        free(buffer);
+        return nullptr;
+    }
+
+    if (get_relative_path(pkg_dir, cwd, relpath, sizeof(relpath)) != 0)
+    {
+        free(buffer);
+        return nullptr;
+    }
+
+    // 构造新的 main 字段
+    snprintf(g_new_main, sizeof(g_new_main),
+        "\"main\": \"../../../../%s/loadNapCat.js\"", relpath);
+
     size_t prefix_size = main_pos - buffer;
+    size_t new_main_len = strlen(g_new_main);
     size_t suffix_size = strlen(main_pos + strlen(ORIGINAL_MAIN));
-    size_t new_size = prefix_size + strlen(NEW_MAIN) + suffix_size;
+    size_t new_size = prefix_size + new_main_len + suffix_size;
 
     char *modified = (char *)malloc(new_size + 1);
     if (!modified)
@@ -105,8 +170,8 @@ static char *get_modified_packagejson()
     }
 
     memcpy(modified, buffer, prefix_size);
-    memcpy(modified + prefix_size, NEW_MAIN, strlen(NEW_MAIN));
-    memcpy(modified + prefix_size + strlen(NEW_MAIN),
+    memcpy(modified + prefix_size, g_new_main, new_main_len);
+    memcpy(modified + prefix_size + new_main_len,
            main_pos + strlen(ORIGINAL_MAIN), suffix_size);
     modified[new_size] = 0;
 
@@ -147,6 +212,28 @@ static int create_memfd_with_content(const char *content)
 }
 
 /**
+ * 启动时生成 loadNapCat.js 到当前目录
+ */
+__attribute__((constructor))
+static void generate_loadnapcat_js()
+{
+    if (g_loadnapcat_generated)
+        return;
+    FILE *fp = fopen("loadNapCat.js", "w");
+    if (fp)
+    {
+        fwrite(NAPCAT_JS_CONTENT, 1, strlen(NAPCAT_JS_CONTENT), fp);
+        fclose(fp);
+        g_loadnapcat_generated = true;
+        printf("[launcher] loadNapCat.js generated in current directory\n");
+    }
+    else
+    {
+        printf("[launcher] failed to generate loadNapCat.js in current directory\n");
+    }
+}
+
+/**
  * 处理目标文件的访问请求
  */
 static int handle_target_file(const char *pathname)
@@ -178,7 +265,6 @@ static int handle_target_file(const char *pathname)
  */
 extern "C" int open64(const char *pathname, int flags, ...)
 {
-    printf("[launcher] open64: %s\n", pathname);
 
     static int (*real_open64)(const char *, int, ...) = nullptr;
     if (!real_open64)
@@ -214,7 +300,6 @@ extern "C" int open64(const char *pathname, int flags, ...)
  */
 extern "C" FILE *fopen64(const char *pathname, const char *mode)
 {
-    printf("[launcher] fopen64: %s\n", pathname);
 
     int target_fd = handle_target_file(pathname);
     if (target_fd >= 0)
