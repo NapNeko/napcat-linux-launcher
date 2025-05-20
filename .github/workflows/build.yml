@@ -27,21 +27,17 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install dependencies
+    - name: Build launcher in Ubuntu 20.04 (glibc 2.31)
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential
-        if [ "${{ matrix.arch }}" = "arm64" ]; then
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-        fi
-
-    - name: Build launcher
-      run: |
-        if [ "${{ matrix.arch }}" = "x64" ]; then
-          g++ -shared -fPIC -ldl -o ${{ matrix.output_name }} launcher.cpp
-        else
-          ${{ matrix.gcc_arch }}g++ -shared -fPIC -ldl -o ${{ matrix.output_name }} launcher.cpp
-        fi
+        docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace ubuntu:20.04 bash -c "
+          apt-get update &&
+          DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu &&
+          if [ '${{ matrix.arch }}' = 'x64' ]; then
+            g++ -shared -fPIC -ldl -o ${{ matrix.output_name }} launcher.cpp;
+          else
+            aarch64-linux-gnu-g++ -shared -fPIC -ldl -o ${{ matrix.output_name }} launcher.cpp;
+          fi
+        "
 
     - name: Test file exists
       run: ls -la ${{ matrix.output_name }}
