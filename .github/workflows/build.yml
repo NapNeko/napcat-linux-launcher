@@ -13,12 +13,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-20.04]
         arch: [x64, arm64]
         include:
           - arch: x64
             gcc_arch: ""
-            output_name: "libnapcat_launcher_amd64.so"
+            output_name: "libnapcat_launcher.so"
           - arch: arm64
             gcc_arch: "aarch64-linux-gnu-"
             output_name: "libnapcat_launcher_arm64.so"
