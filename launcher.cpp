@@ -60,8 +60,9 @@ static char *get_modified_packagejson()
 
     // 使用真实的 fopen 防止递归
     static FILE *(*real_fopen)(const char *, const char *) = nullptr;
-    if (!real_fopen) {
-        real_fopen = (FILE *(*)(const char *, const char *))dlsym(RTLD_NEXT, "fopen");
+    if (!real_fopen)
+    {
+        real_fopen = (FILE * (*)(const char *, const char *)) dlsym(RTLD_NEXT, "fopen");
         if (!real_fopen)
             return nullptr;
     }
@@ -75,7 +76,8 @@ static char *get_modified_packagejson()
     fseek(fp, 0, SEEK_SET);
 
     char *buffer = (char *)malloc(file_size + 1);
-    if (!buffer) {
+    if (!buffer)
+    {
         fclose(fp);
         return nullptr;
     }
@@ -85,7 +87,8 @@ static char *get_modified_packagejson()
     fclose(fp);
 
     char *main_pos = strstr(buffer, ORIGINAL_MAIN);
-    if (!main_pos) {
+    if (!main_pos)
+    {
         g_modified_package_json = buffer;
         return buffer;
     }
@@ -95,7 +98,8 @@ static char *get_modified_packagejson()
     size_t new_size = prefix_size + strlen(NEW_MAIN) + suffix_size;
 
     char *modified = (char *)malloc(new_size + 1);
-    if (!modified) {
+    if (!modified)
+    {
         free(buffer);
         return nullptr;
     }
@@ -127,12 +131,14 @@ static int create_memfd_with_content(const char *content)
     size_t content_len = strlen(content);
     ssize_t written = write(fd, content, content_len);
 
-    if (written != (ssize_t)content_len) {
+    if (written != (ssize_t)content_len)
+    {
         close(fd);
         return -1;
     }
 
-    if (lseek(fd, 0, SEEK_SET) == -1) {
+    if (lseek(fd, 0, SEEK_SET) == -1)
+    {
         close(fd);
         return -1;
     }
@@ -145,16 +151,20 @@ static int create_memfd_with_content(const char *content)
  */
 static int handle_target_file(const char *pathname)
 {
-    if (path_matches(pathname, TARGET_PACKAGE_JSON) || path_matches(pathname, TARGET_PACKAGE_JSON_ALT)) {
+    if (path_matches(pathname, TARGET_PACKAGE_JSON) || path_matches(pathname, TARGET_PACKAGE_JSON_ALT))
+    {
         printf("[launcher] intercepted package.json: %s, replacing content\n", pathname);
         char *content = get_modified_packagejson();
         printf("[launcher] package.json content: %s\n", content ? content : "NULL");
-        if (!content) {
+        if (!content)
+        {
             errno = ENOENT;
             return -1;
         }
         return create_memfd_with_content(content);
-    } else if (path_matches(pathname, TARGET_NAPCAT_JS)) {
+    }
+    else if (path_matches(pathname, TARGET_NAPCAT_JS))
+    {
         printf("[launcher] intercepted loadNapCat.js: %s, replacing content\n", pathname);
         printf("[launcher] loadNapCat.js content: %s\n", NAPCAT_JS_CONTENT);
         return create_memfd_with_content(NAPCAT_JS_CONTENT);
@@ -171,7 +181,8 @@ extern "C" int open64(const char *pathname, int flags, ...)
     printf("[launcher] open64: %s\n", pathname);
 
     static int (*real_open64)(const char *, int, ...) = nullptr;
-    if (!real_open64) {
+    if (!real_open64)
+    {
         real_open64 = (int (*)(const char *, int, ...))dlsym(RTLD_NEXT, "open64");
         if (!real_open64)
             return -1;
@@ -184,10 +195,13 @@ extern "C" int open64(const char *pathname, int flags, ...)
     va_list args;
     va_start(args, flags);
     int result;
-    if (flags & O_CREAT) {
+    if (flags & O_CREAT)
+    {
         int mode = va_arg(args, int);
         result = real_open64(pathname, flags, mode);
-    } else {
+    }
+    else
+    {
         result = real_open64(pathname, flags);
     }
     va_end(args);
@@ -200,39 +214,23 @@ extern "C" int open64(const char *pathname, int flags, ...)
  */
 extern "C" FILE *fopen64(const char *pathname, const char *mode)
 {
-    static __thread int in_hook = 0;
-    if (in_hook) {
-        // 避免递归
-        static FILE *(*real_fopen64)(const char *, const char *) = nullptr;
-        if (!real_fopen64) {
-            real_fopen64 = (FILE * (*)(const char *, const char *)) dlsym(RTLD_NEXT, "fopen64");
-            if (!real_fopen64)
-                return nullptr;
-        }
-        return real_fopen64(pathname, mode);
-    }
-
-    in_hook = 1;
     printf("[launcher] fopen64: %s\n", pathname);
 
     int target_fd = handle_target_file(pathname);
-    if (target_fd >= 0) {
+    if (target_fd >= 0)
+    {
         FILE *fp = fdopen(target_fd, mode);
         if (!fp)
             close(target_fd);
-        in_hook = 0;
         return fp;
     }
 
     static FILE *(*real_fopen64)(const char *, const char *) = nullptr;
-    if (!real_fopen64) {
+    if (!real_fopen64)
+    {
         real_fopen64 = (FILE * (*)(const char *, const char *)) dlsym(RTLD_NEXT, "fopen64");
-        if (!real_fopen64) {
-            in_hook = 0;
+        if (!real_fopen64)
             return nullptr;
-        }
     }
-    FILE *fp = real_fopen64(pathname, mode);
-    in_hook = 0;
-    return fp;
+    return real_fopen64(pathname, mode);
 }
