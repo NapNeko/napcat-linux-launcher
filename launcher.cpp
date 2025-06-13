@@ -56,44 +56,90 @@ static bool path_matches(const char *path, const char *target)
 }
 
 /**
- * 计算 from_dir 到 to_dir 的相对路径
+ * 计算 from_dir 到 to_dir 的相对路径 - 改进版本
  */
 static int get_relative_path(const char *from_dir, const char *to_dir, char *out, size_t out_size)
 {
     char from[PATH_MAX], to[PATH_MAX];
+
+    // 获取绝对路径
     if (!realpath(from_dir, from) || !realpath(to_dir, to))
         return -1;
 
-    // 找公共前缀
-    size_t i = 0;
-    while (from[i] && to[i] && from[i] == to[i]) i++;
+    // 确保路径以 '/' 结尾，便于处理
+    size_t from_len = strlen(from);
+    size_t to_len = strlen(to);
 
-    // 回退到最后一个'/'
-    size_t last_slash = i;
-    while (last_slash > 0 && from[last_slash - 1] != '/') last_slash--;
+    if (from[from_len - 1] != '/')
+    {
+        strcat(from, "/");
+        from_len++;
+    }
+    if (to[to_len - 1] != '/')
+    {
+        strcat(to, "/");
+        to_len++;
+    }
 
-    // 计算需要多少个 ../
-    size_t up = 0;
-    for (size_t j = last_slash; from[j]; j++)
-        if (from[j] == '/') up++;
+    // 找到公共前缀
+    size_t common_len = 0;
+    while (common_len < from_len && common_len < to_len && from[common_len] == to[common_len])
+    {
+        common_len++;
+    }
 
-    char rel[PATH_MAX] = {0};
-    for (size_t j = 0; j < up; j++)
-        strcat(rel, "../");
+    // 回退到最后一个完整的目录分隔符
+    while (common_len > 0 && from[common_len - 1] != '/')
+    {
+        common_len--;
+    }
 
-    strcat(rel, to + last_slash);
+    // 计算需要向上跳转的层数
+    size_t up_levels = 0;
+    for (size_t i = common_len; i < from_len; i++)
+    {
+        if (from[i] == '/')
+        {
+            up_levels++;
+        }
+    }
 
-    // 去掉开头的 '/'
-    if (rel[0] == '/')
-        memmove(rel, rel + 1, strlen(rel));
+    // 构建相对路径
+    char result[PATH_MAX] = {0};
 
-    strncpy(out, rel, out_size - 1);
-    out[out_size - 1] = 0;
+    // 添加 "../" 部分
+    for (size_t i = 0; i < up_levels; i++)
+    {
+        strcat(result, "../");
+    }
+
+    // 添加目标路径的剩余部分
+    if (common_len < to_len)
+    {
+        strcat(result, to + common_len);
+        // 移除末尾的 '/'
+        size_t result_len = strlen(result);
+        if (result_len > 0 && result[result_len - 1] == '/')
+        {
+            result[result_len - 1] = '\0';
+        }
+    }
+
+    // 如果结果为空，表示是同一目录
+    if (strlen(result) == 0)
+    {
+        strcpy(result, ".");
+    }
+
+    // 复制结果
+    strncpy(out, result, out_size - 1);
+    out[out_size - 1] = '\0';
+
     return 0;
 }
 
 /**
- * 读取并修改 package.json 内容
+ * 读取并修改 package.json 内容 - 改进版本
  */
 static char *get_modified_packagejson()
 {
@@ -137,16 +183,26 @@ static char *get_modified_packagejson()
 
     // 计算 package.json 所在目录和当前工作目录的相对路径
     char pkg_dir[PATH_MAX], cwd[PATH_MAX], relpath[PATH_MAX];
-    strncpy(pkg_dir, TARGET_PACKAGE_JSON_ALT, PATH_MAX - 1);
-    pkg_dir[PATH_MAX - 1] = 0;
-    dirname(pkg_dir); // pkg_dir 变成 package.json 所在目录
 
+    // 获取 package.json 所在的目录
+    strncpy(pkg_dir, TARGET_PACKAGE_JSON_ALT, PATH_MAX - 1);
+    pkg_dir[PATH_MAX - 1] = '\0';
+
+    // 获取目录部分（去掉文件名）
+    char *last_slash = strrchr(pkg_dir, '/');
+    if (last_slash)
+    {
+        *last_slash = '\0';
+    }
+
+    // 获取当前工作目录
     if (!getcwd(cwd, sizeof(cwd)))
     {
         free(buffer);
         return nullptr;
     }
 
+    // 计算相对路径
     if (get_relative_path(pkg_dir, cwd, relpath, sizeof(relpath)) != 0)
     {
         free(buffer);
@@ -155,7 +211,7 @@ static char *get_modified_packagejson()
 
     // 构造新的 main 字段
     snprintf(g_new_main, sizeof(g_new_main),
-        "\"main\": \"../../../../%s/loadNapCat.js\"", relpath);
+             "\"main\": \"%s/loadNapCat.js\"", relpath);
 
     size_t prefix_size = main_pos - buffer;
     size_t new_main_len = strlen(g_new_main);
@@ -177,6 +233,9 @@ static char *get_modified_packagejson()
 
     free(buffer);
     g_modified_package_json = modified;
+
+    printf("[launcher] Generated relative path: %s\n", relpath);
+    printf("[launcher] New main field: %s\n", g_new_main);
 
     return g_modified_package_json;
 }
